@@ -4,8 +4,8 @@
   "description": "",
   "main": "convert.js",
   "scripts": {
-    "extend-patient-debug": "node --inspect-brk extend-patient/extend-patient.js",
-    "extend-patient": "node extend-patient/extend-patient.js",
+    "extend-patient-debug": "node --max-old-space-size=16384 --inspect-brk extend-patient/extend-patient.js",
+    "extend-patient": "node --max-old-space-size=16384 extend-patient/extend-patient.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
