@@ -31,22 +31,6 @@ const syncTranscriptPath = path.join(__dirname, '../', 'input-datasets',
   'SyncTranscript.csv',
 );
 
-const normalizedCategories = Object.keys(categories).reduce((acc, name) => {
-  const snakeCaseName = '[diagnosis_count]_' + name.split(' ').join('_');
-  acc[snakeCaseName] = categories[name];
-  return acc;
-}, {});
-
-const categoriesList = Object.entries(normalizedCategories);
-
-const defaultCategories = categoriesList.reduce((acc, [name]) => {
-  acc = {...acc, [name]: 0};
-
-  return acc;
-}, {});
-
-let medicationNames = [];
-
 (async () => {
   const diagnosisDataset = await csv().fromFile(diagnosisPath);
   const disctinctYearDataset = await csv().fromFile(disctinctYearPath);
@@ -56,6 +40,8 @@ let medicationNames = [];
     .fromFile(syncMedicationUnitsConvertedPath);
   const transcriptDataset = await csv().fromFile(syncTranscriptPath);
 
+  console.log('Start datasets processing');
+
   const newPatientsTrain = getProcessedPatients(patientsDatasetTrain,
     diagnosisDataset, disctinctYearDataset, medicationUnitsConverted,
     transcriptDataset,
@@ -63,7 +49,7 @@ let medicationNames = [];
 
   saveFileToOutputs(outputFilePathTrain, newPatientsTrain);
 
-  console.log('Train dataset is saved');
+  console.log('Patient train dataset is saved');
 
   const patientsDatasetTest = await csv().fromFile(patientTestPath);
   const newPatientsTest = getProcessedPatients(patientsDatasetTest,
@@ -72,13 +58,16 @@ let medicationNames = [];
   );
 
   saveFileToOutputs(outputFilePathTest, newPatientsTest);
-  console.log('Test dataset is saved');
+  console.log('Patient test dataset is saved');
 })();
+
+
+let medicationNames = [];
 
 function getProcessedPatients(
   patientDataset, diagnosisDataset, distinctYearDataset,
   medicationUnitsConverted, transcriptDataset) {
-  const diagnosisByPatientMap = getDiagnosisByPatienMap(diagnosisDataset);
+  const diagnosisByPatientMap = getDiagnosisByPatientMap(diagnosisDataset);
   const distinctYearByPatientMap = getDistinctYearByPatientMap(
     distinctYearDataset);
   const medicationsByPatientMap = getMedicationsByPatientMap(
@@ -118,7 +107,6 @@ function getProcessedPatients(
 
     return {
       ...patient,
-      ...defaultCategories,
       ...allYearValues,
       'patient_diagnosis_dict': JSON.stringify(patientDiagnosisDict),
       'patient_medication_dict': JSON.stringify(patientMedicationDict),
@@ -217,8 +205,6 @@ function getMinMaxMedicationStrength(patient) {
         const min = getMin(filteredValues);
         const max = getMax(filteredValues);
 
-        console.log('avg: ', avg, 'min: ', min, 'max: ', max);
-
         patient[`[medication-name]_${medName}_STRENGTH_MIN`] = min;
         patient[`[medication-name]_${medName}_STRENGTH_AVG`] = avg;
         patient[`[medication-name]_${medName}_STRENGTH_MAX`] = max;
@@ -247,6 +233,82 @@ function getMinMaxTranscriptValues(patientTranscriptsList) {
   return patient;
 }
 
+function getDistinctYearByPatientMap(distinctYearDataset) {
+  const distinctYearDatasetMap = new Map();
+
+  distinctYearDataset.forEach(value => {
+    const {PatientGuid, avg_number_distinct_year_medication, max_number_distinct_year_medication} = value;
+
+    distinctYearDatasetMap.set(PatientGuid, {
+      avg_number_distinct_year_medication: Number(
+        avg_number_distinct_year_medication) || 0,
+      max_number_distinct_year_medication: Number(
+        max_number_distinct_year_medication) || 0,
+    });
+  });
+
+  return distinctYearDatasetMap;
+}
+
+function getDiagnosisByPatientMap(diagnosisDataset) {
+  const diagnosisByPatientMap = new Map();
+
+  diagnosisDataset.forEach(diagnosis => {
+    const patientDiagnosisList = diagnosisByPatientMap.get(
+      diagnosis['PatientGuid']) || [];
+
+    const diagnosisCategoryName = getDiagnosisCategory(diagnosis);
+
+    diagnosis['name_by_ICD9'] = diagnosisCategoryName;
+
+    diagnosisByPatientMap.set(diagnosis['PatientGuid'],
+      [...patientDiagnosisList, diagnosis],
+    );
+
+  });
+
+  return diagnosisByPatientMap;
+}
+
+
+function getDiagnosisCategory(diagnosis) {
+  const normalizedICD9Categories = Object.keys(categories).reduce((acc, name) => {
+    const snakeCaseName = '[diagnosis_count]_' + name.split(' ').join('_');
+    acc[snakeCaseName] = categories[name];
+    return acc;
+  }, {});
+
+  const categoriesList = Object.entries(normalizedICD9Categories);
+
+  const ICD9Code = diagnosis['ICD9Code'];
+  const numberICDCode = Math.ceil(Number(diagnosis['ICD9Code']));
+
+  if (!numberICDCode) {
+    const codeStr = String(ICD9Code).toUpperCase();
+
+    if (codeStr.includes('E') || codeStr.includes('V')) {
+      const lastCategoryName = categoriesList[categoriesList.length - 1][0];
+      return lastCategoryName;
+    }
+  }
+
+  const category = categoriesList.find(([name, condition]) => {
+    const [start, end] = condition;
+
+    if (start <= numberICDCode && numberICDCode <= end) {
+      return true;
+    }
+  });
+
+  if (!category) {
+    return null;
+  }
+
+  return category[0];
+}
+
+// Utility functions
+
 function getAvg(values) {
   if (values && values.length === 1) {
     return Number(values[0]);
@@ -272,71 +334,6 @@ function getMax(values) {
   }
 
   return Math.max(...values) || 'NULL';
-}
-
-function getDistinctYearByPatientMap(distinctYearDataset) {
-  const distinctYearDatasetMap = new Map();
-
-  distinctYearDataset.forEach(value => {
-    const {PatientGuid, avg_number_distinct_year_medication, max_number_distinct_year_medication} = value;
-
-    distinctYearDatasetMap.set(PatientGuid, {
-      avg_number_distinct_year_medication: Number(
-        avg_number_distinct_year_medication) || 0,
-      max_number_distinct_year_medication: Number(
-        max_number_distinct_year_medication) || 0,
-    });
-  });
-
-  return distinctYearDatasetMap;
-}
-
-function getDiagnosisByPatienMap(diagnosisDataset) {
-  const diagnosisByPatientMap = new Map();
-
-  diagnosisDataset.forEach(diagnosis => {
-    const patientDiagnosisList = diagnosisByPatientMap.get(
-      diagnosis['PatientGuid']) || [];
-
-    const diagnosisCategoryName = getDiagnosisCategory(diagnosis);
-
-    diagnosis['name_by_ICD9'] = diagnosisCategoryName;
-
-    diagnosisByPatientMap.set(diagnosis['PatientGuid'],
-      [...patientDiagnosisList, diagnosis],
-    );
-
-  });
-
-  return diagnosisByPatientMap;
-}
-
-function getDiagnosisCategory(diagnosis) {
-  const ICDCode = diagnosis['ICD9Code'];
-  const numberICDCode = Math.ceil(Number(diagnosis['ICD9Code']));
-
-  if (!numberICDCode) {
-    const codeStr = String(ICDCode).toUpperCase();
-
-    if (codeStr.includes('E') || codeStr.includes('V')) {
-      const lastCategoryName = categoriesList[categoriesList.length - 1][0];
-      return lastCategoryName;
-    }
-  }
-
-  const category = categoriesList.find(([name, condition]) => {
-    const [start, end] = condition;
-
-    if (start <= numberICDCode && numberICDCode <= end) {
-      return true;
-    }
-  });
-
-  if (!category) {
-    return null;
-  }
-
-  return category[0];
 }
 
 function saveFileToOutputs(path, data) {
