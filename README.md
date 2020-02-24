@@ -1,4 +1,4 @@
-### SAFER-hackathon app
+### SAFER hackathon app
 
 It aggregates data from tables and joins into `patient` table.
 
