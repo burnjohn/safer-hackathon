@@ -1,6 +1,8 @@
 const path = require('path');
 const fs = require('fs');
 const csv = require('csvtojson');
+
+// No time to read the API of the first library, just use a different one
 const {Parser} = require('json2csv');
 
 const categories = require('./categories.json');
